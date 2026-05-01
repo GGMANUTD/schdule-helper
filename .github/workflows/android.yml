@@ -2,6 +2,10 @@ name: Build Android APK
 on: 
   workflow_dispatch:
 
+env:
+  # 强制使用最新的 Node 环境运行 Actions，解决警告
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -11,43 +15,42 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22 # 使用最新稳定版 Node.js
+          node-version: 22
           
       - name: Install Dependencies
         run: npm install
         
       - name: Build Web Project
-        run: npm run static-build
+        run: |
+          npm run static-build
+          # 确保 dist 目录真的有内容
+          ls -R dist
         
       - name: Capacitor Setup
         run: |
-          # 确保 dist 目录存在，否则 add android 会失败
-          mkdir -p dist
-          touch dist/index.html
-          
-          # 安装必要的安卓外壳
-          npx cap add android || echo "Android platform already exists"
-          
-          # 更新配置
+          # 清理旧环境并强制安装安卓平台
+          npm install @capacitor/cli @capacitor/core @capacitor/android
+          rm -rf android
+          npx cap add android
           npx cap sync
-        
+
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
-          cache: 'gradle'
-          
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
       - name: Build with Gradle
         run: |
           cd android
-          # 给予 gradle 运行权限
-          chmod +x gradlew
-          # 开始打包
-          ./gradlew assembleDebug --stacktrace
+          # 直接使用系统 gradle 避开损坏的 wrapper
+          gradle assembleDebug --stacktrace
           
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Student-Planner-Debug-APK
+          name: 学生计划-正式安装包
           path: android/app/build/outputs/apk/debug/app-debug.apk
