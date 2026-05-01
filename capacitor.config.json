@@ -1,0 +1,6 @@
+{
+  "appId": "com.studentplanner.app",
+  "appName": "Student Planner",
+  "webDir": "dist",
+  "bundledWebRuntime": false
+}

@@ -1,0 +1,12 @@
+{
+  "name": "日程助手 (Schedule Helper)",
+  "description": "一个精美且功能强大的日程安排与课表管理工具，支持本地计划、提醒及URL课表导入。",
+  "requestFramePermissions": [
+    "notifications"
+  ],
+  "majorCapabilities": [
+    "Schedule Management",
+    "Timetable Import",
+    "Real-time Reminders"
+  ]
+}
