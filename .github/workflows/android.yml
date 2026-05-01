@@ -1,6 +1,6 @@
 name: Build Android APK
 on: 
-  workflow_dispatch: # 支持手动触发打包
+  workflow_dispatch:
 
 jobs:
   build:
@@ -11,7 +11,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22 # 使用最新稳定版 Node.js
           
       - name: Install Dependencies
         run: npm install
@@ -19,8 +19,13 @@ jobs:
       - name: Build Web Project
         run: npm run static-build
         
-      - name: Capacitor Sync
-        run: npx cap sync
+      - name: Capacitor Setup
+        run: |
+          # 如果 android 目录不存在，则创建它
+          if [ ! -d "android" ]; then
+            npx cap add android
+          fi
+          npx cap sync
         
       - name: Set up JDK 17
         uses: actions/setup-java@v4
