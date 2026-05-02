@@ -25,6 +25,18 @@ import {
   ChevronDown
 } from 'lucide-react';
 import { LocalNotifications } from '@capacitor/local-notifications';
+
+const AppIcon = ({ className, size = 64 }: { className?: string, size?: number }) => (
+  <div className={cn("relative flex items-center justify-center bg-indigo-600 rounded-[28%] shadow-xl", className)} style={{ width: size, height: size }}>
+    <Clock className="text-white" size="60%" strokeWidth={2.5} />
+    <motion.div 
+      initial={{ rotate: 0 }}
+      animate={{ rotate: 360 }}
+      transition={{ duration: 12, repeat: Infinity, ease: "linear" }}
+      className="absolute inset-0 border-2 border-white/20 rounded-[28%] scale-110"
+    />
+  </div>
+);
 import { format, addDays, isSameDay, parseISO, addHours, differenceInCalendarWeeks, startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval, isSameMonth, addMonths, subMonths } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 import { cn } from './lib/utils';
@@ -73,6 +85,7 @@ const getTodayWeek = () => {
 };
 
 export default function App() {
+  const [showSplash, setShowSplash] = useState(true);
   const [activeView, setActiveView] = useState<ViewType>('today');
   const [plans, setPlans] = useState<Plan[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
@@ -132,6 +145,10 @@ export default function App() {
     if (savedSettings && JSON.parse(savedSettings).notifications) {
       initNotifications();
     }
+
+    // Hide splash screen after initialization
+    const timer = setTimeout(() => setShowSplash(false), 2000);
+    return () => clearTimeout(timer);
   }, []);
 
   // Save to LocalStorage
@@ -352,6 +369,50 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 font-sans pb-32 selection:bg-indigo-100 selection:text-indigo-900 overflow-x-hidden relative">
+      <AnimatePresence>
+        {showSplash && (
+          <motion.div 
+            key="splash"
+            initial={{ opacity: 1 }}
+            exit={{ opacity: 0, scale: 1.1 }}
+            transition={{ duration: 0.5, ease: "easeInOut" }}
+            className="fixed inset-0 z-[200] bg-white flex flex-col items-center justify-center"
+          >
+            <motion.div
+              initial={{ scale: 0.8, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ duration: 0.6, ease: "backOut" }}
+            >
+              <AppIcon size={120} className="mb-8" />
+            </motion.div>
+            <motion.div
+              initial={{ y: 20, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ delay: 0.3, duration: 0.5 }}
+              className="text-center"
+            >
+              <h1 className="text-2xl font-black text-slate-900 tracking-tight mb-2">智时学生日程管理系统</h1>
+              <div className="flex items-center justify-center gap-2">
+                <span className="w-8 h-1 bg-indigo-600 rounded-full" />
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">Version 1.0</span>
+                <span className="w-8 h-1 bg-indigo-600 rounded-full" />
+              </div>
+            </motion.div>
+            
+            <div className="absolute bottom-12 text-slate-300">
+               <motion.div
+                 animate={{ opacity: [0.3, 0.6, 0.3] }}
+                 transition={{ duration: 2, repeat: Infinity }}
+                 className="flex items-center gap-2"
+               >
+                 <div className="w-1.5 h-1.5 bg-indigo-400 rounded-full" />
+                 <span className="text-[10px] font-black uppercase tracking-widest">初始化中...</span>
+               </motion.div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <AnimatePresence mode="wait" initial={false}>
         <motion.div
           key={activeView}
@@ -1576,7 +1637,7 @@ const SettingsView = ({
         >
           <ChevronLeft size={20} />
         </motion.button>
-        <h1 className="text-2xl font-bold text-slate-900">个人中心</h1>
+        <h1 className="text-2xl font-bold text-slate-900">智时学生日程管理系统</h1>
       </div>
       
       <div className="space-y-4">
@@ -1661,12 +1722,12 @@ const SettingsView = ({
         <div className="bg-white rounded-[32px] p-8 border border-slate-100 shadow-sm">
           <div className="flex items-center gap-3 mb-6 pb-6 border-b border-slate-50">
             <AlertCircle className="text-slate-400" size={20} />
-            <h3 className="font-bold text-slate-900 tracking-tight">智时日程助手信息</h3>
+            <h3 className="font-bold text-slate-900 tracking-tight">智时学生日程管理系统</h3>
           </div>
           <div className="space-y-6 text-sm text-slate-500">
             <div className="flex justify-between items-center">
               <span className="font-medium">当前版本</span>
-              <span className="font-bold text-slate-900 bg-slate-50 px-3 py-1 rounded-full text-[10px] uppercase tracking-wider">v1.2.0 Stable</span>
+              <span className="font-bold text-slate-900 bg-slate-50 px-3 py-1 rounded-full text-[10px] uppercase tracking-wider">V1.0 Stable</span>
             </div>
             <div className="flex justify-between items-center">
               <span className="font-medium">数据安全</span>
