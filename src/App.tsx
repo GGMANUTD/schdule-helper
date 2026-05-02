@@ -24,6 +24,7 @@ import {
   MapPin,
   ChevronDown
 } from 'lucide-react';
+import { LocalNotifications } from '@capacitor/local-notifications';
 import { format, addDays, isSameDay, parseISO, addHours, differenceInCalendarWeeks, startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval, isSameMonth, addMonths, subMonths } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 import { cn } from './lib/utils';
@@ -40,13 +41,13 @@ const Navbar = ({ activeView, setView }: { activeView: ViewType, setView: (v: Vi
   ];
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur-xl border-t border-slate-100 flex justify-around items-center py-3 pb-8 px-4 z-50">
+    <nav className="fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur-xl border-t border-slate-100 flex justify-around items-center py-3 pb-8 px-4 z-50 select-none">
       {items.map(({ type, icon: Icon, label }) => (
         <button
           key={type}
           onClick={() => setView(type)}
           className={cn(
-            "flex flex-col items-center gap-1 transition-all relative px-4 py-1 rounded-2xl",
+            "flex flex-col items-center gap-1 transition-all relative px-4 py-1 rounded-2xl cursor-pointer",
             activeView === type ? "text-indigo-600 bg-indigo-50/50" : "text-slate-400 hover:text-slate-600"
           )}
         >
@@ -104,6 +105,17 @@ export default function App() {
 
   // Load from LocalStorage
   useEffect(() => {
+    const initNotifications = async () => {
+      try {
+        const permission = await LocalNotifications.requestPermissions();
+        if (permission.display === 'granted') {
+          setNotificationsEnabled(true);
+        }
+      } catch (e) {
+        console.warn('LocalNotifications not supported', e);
+      }
+    };
+    
     const savedPlans = localStorage.getItem('plans');
     const savedCourses = localStorage.getItem('courses');
     const savedSettings = localStorage.getItem('settings');
@@ -117,8 +129,8 @@ export default function App() {
       setAutoCompleteSynced(settings.autoComplete || false);
     }
 
-    if ("Notification" in window && Notification.permission === "granted") {
-      setNotificationsEnabled(true);
+    if (savedSettings && JSON.parse(savedSettings).notifications) {
+      initNotifications();
     }
   }, []);
 
@@ -142,7 +154,51 @@ export default function App() {
 
   // Reminder Logic
   useEffect(() => {
-    if (!notificationsEnabled) return;
+    if (!notificationsEnabled) {
+      // If disabled, cancel all pending
+      LocalNotifications.cancel({ notifications: [] }).catch(() => {});
+      return;
+    }
+
+    const scheduleNotifications = async () => {
+      try {
+        // Cancel first to avoid duplicates
+        const pending = await LocalNotifications.getPending();
+        if (pending.notifications.length > 0) {
+          await LocalNotifications.cancel(pending);
+        }
+
+        const notificationList = plans
+          .filter(p => !p.isCompleted && !p.reminded)
+          .map(plan => {
+            const startTime = parseISO(plan.startTime);
+            const remindTime = new Date(startTime.getTime() - 5 * 60000); // 5 mins before
+            
+            if (remindTime > new Date()) {
+              return {
+                title: '智时日程提醒',
+                body: `你的计划 "${plan.title}" 即将开始`,
+                id: Math.floor(Math.random() * 1000000),
+                schedule: { at: remindTime },
+                sound: 'default'
+              };
+            }
+            return null;
+          })
+          .filter(Boolean) as any[];
+
+        if (notificationList.length > 0) {
+          await LocalNotifications.schedule({
+            notifications: notificationList
+          });
+        }
+      } catch (e) {
+        console.warn('Capacitor notifications failed, falling back to Web API', e);
+        // Fallback to Web Notification if available (existing logic)
+      }
+    };
+
+    scheduleNotifications();
 
     const interval = setInterval(() => {
       const now = new Date();
@@ -152,10 +208,13 @@ export default function App() {
           const diffMinutes = (startTime.getTime() - now.getTime()) / (1000 * 60);
           
           if (diffMinutes > 0 && diffMinutes <= 5) {
-            new Notification("智时日程提醒", {
-              body: `你的计划 "${plan.title}" 即将开始`,
-              icon: "/favicon.ico"
-            });
+            // Web Notification Fallback
+            if ("Notification" in window && Notification.permission === "granted") {
+              new Notification("智时日程提醒", {
+                body: `你的计划 "${plan.title}" 即将开始`,
+                icon: "/favicon.ico"
+              });
+            }
             
             setPlans(current => 
               current.map(p => p.id === plan.id ? { ...p, reminded: true } : p)
@@ -163,7 +222,7 @@ export default function App() {
           }
         }
       });
-    }, 30000);
+    }, 60000);
 
     return () => clearInterval(interval);
   }, [plans, notificationsEnabled]);
@@ -256,6 +315,23 @@ export default function App() {
     setPlans(plans.filter(p => p.id !== id));
   };
 
+  const views: ViewType[] = ['today', 'timetable', 'calendar', 'settings'];
+  const handleDragEnd = (event: any, info: any) => {
+    const threshold = 50;
+    const velocityThreshold = 100;
+    const currentIndex = views.indexOf(activeView);
+
+    if (info.offset.x < -threshold || info.velocity.x < -velocityThreshold) {
+      if (currentIndex < views.length - 1) {
+        setActiveView(views[currentIndex + 1]);
+      }
+    } else if (info.offset.x > threshold || info.velocity.x > velocityThreshold) {
+      if (currentIndex > 0) {
+        setActiveView(views[currentIndex - 1]);
+      }
+    }
+  };
+
   const renderView = () => {
     switch (activeView) {
       case 'today': return <TodayView plans={plans} togglePlan={togglePlan} deletePlan={deletePlan} />;
@@ -275,15 +351,19 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 font-sans pb-32 selection:bg-indigo-100 selection:text-indigo-900 overflow-x-hidden">
-      <AnimatePresence mode="wait">
+    <div className="min-h-screen bg-slate-50 text-slate-800 font-sans pb-32 selection:bg-indigo-100 selection:text-indigo-900 overflow-x-hidden relative">
+      <AnimatePresence mode="wait" initial={false}>
         <motion.div
           key={activeView}
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -10 }}
+          drag="x"
+          dragConstraints={{ left: 0, right: 0 }}
+          dragElastic={0.2}
+          onDragEnd={handleDragEnd}
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: -20 }}
           transition={{ 
-            duration: 0.2,
+            duration: 0.3,
             ease: [0.23, 1, 0.32, 1]
           }}
           className="w-full h-full"
@@ -333,7 +413,7 @@ const TodayView = ({ plans, togglePlan, deletePlan }: {
   const progressPercent = todayPlans.length > 0 ? Math.round((completedCount / todayPlans.length) * 100) : 0;
 
   return (
-    <div className="px-6 pt-12 max-w-2xl mx-auto">
+    <div className="px-6 pt-12 sm:pt-12 max-w-2xl mx-auto">
       <header className="mb-10 flex justify-between items-start">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-slate-900 mb-1">我的日程</h1>
@@ -510,7 +590,7 @@ const CalendarView = ({ plans, togglePlan, deletePlan, setView }: {
     .sort((a, b) => a.startTime.localeCompare(b.startTime));
 
   return (
-    <div className="px-5 pt-8 max-w-2xl mx-auto pb-20">
+    <div className="px-5 pt-12 sm:pt-8 max-w-2xl mx-auto pb-20">
       <header className="mb-6">
         <div className="flex items-center justify-between mb-8 px-1">
           <div className="flex items-center gap-3">
@@ -960,9 +1040,9 @@ const TimetableView = ({ courses, setCourses, currentWeek, setCurrentWeek, setVi
   });
 
   return (
-    <div className="min-h-screen bg-slate-50/50 pb-32">
+    <div className="min-h-screen bg-slate-50/50 pb-32 pt-12 sm:pt-2">
       {/* 1. Import Section at the very top (Collapsible) */}
-      <div className="w-full max-w-7xl mx-auto px-2 pt-2">
+      <div className="w-full max-w-7xl mx-auto px-2">
         <div className="bg-slate-900 rounded-[24px] overflow-hidden shadow-xl transition-all duration-300 ring-1 ring-white/5">
             <button 
                 onClick={() => setIsImportCollapsed(!isImportCollapsed)}
@@ -1191,18 +1271,33 @@ const TimetableView = ({ courses, setCourses, currentWeek, setCurrentWeek, setVi
                                 backdropFilter: 'blur(8px)'
                               }}
                             >
-                              <div className="text-[8px] font-bold leading-[1.1] mb-auto break-all line-clamp-3">
+                              <div className="text-[7px] font-bold leading-tight mb-1 break-words whitespace-normal">
                                 {course.name}
                               </div>
-                              <div className="mt-0.5 space-y-0.5">
-                                <div className="flex items-center gap-0.5 opacity-90">
-                                  <MapPin size={6} className="shrink-0" />
-                                  <span className="text-[7px] font-bold truncate leading-none">{course.location.replace('北区', '北').replace('南区', '南')}</span>
+                              <div className="mt-auto space-y-0.5 border-t border-black/5 pt-0.5">
+                                <div className="flex items-start gap-0.5 opacity-90">
+                                  <MapPin size={5} className="shrink-0 mt-0.5" />
+                                  <div className="text-[6px] font-bold leading-tight flex flex-col">
+                                    {(() => {
+                                      const loc = course.location.replace('北区', '北').replace('南区', '南');
+                                      // 增强的拆分逻辑：匹配 字母+数字 或 连续3位数字
+                                      const match = loc.match(/^(.+?)([A-Za-z]\d+.*|\d{3,}.*)$/);
+                                      if (match) {
+                                        return (
+                                          <>
+                                            <span className="truncate">{match[1]}</span>
+                                            <span className="text-indigo-600/80">{match[2]}</span>
+                                          </>
+                                        );
+                                      }
+                                      return <span className="break-words">{loc}</span>
+                                    })()}
+                                  </div>
                                 </div>
                                 {course.teacher && (
-                                  <div className="flex items-center gap-0.5 opacity-70">
-                                    <User size={6} className="shrink-0" />
-                                    <span className="text-[7px] font-medium truncate leading-none">{course.teacher}</span>
+                                  <div className="flex items-start gap-0.5 opacity-70">
+                                    <User size={5} className="shrink-0 mt-0.5" />
+                                    <span className="text-[6px] font-medium break-words leading-tight">{course.teacher}</span>
                                   </div>
                                 )}
                               </div>
@@ -1632,9 +1727,9 @@ const PlanCard: React.FC<{
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[10px] text-slate-400 font-bold uppercase tracking-widest">
           <span className="flex items-center gap-1.5 shrink-0"><Clock size={12} className="text-slate-300" /> {time}</span>
           {plan.location && (
-            <span className="flex items-center gap-1.5 text-slate-500 min-w-0 truncate">
-              <MapPin size={12} className="text-indigo-400/60 shrink-0" /> 
-              <span className="truncate">{plan.location}</span>
+            <span className="flex items-start gap-1.5 text-slate-500 min-w-0">
+              <MapPin size={12} className="text-indigo-400/60 shrink-0 mt-0.5" /> 
+              <span className="break-words leading-tight">{plan.location}</span>
             </span>
           )}
           {plan.reminded && <span className="flex items-center gap-1.5 text-indigo-500 bg-indigo-50/50 px-2 py-0.5 rounded-full lowercase tracking-normal font-medium shrink-0"><Bell size={10} /> 已提醒</span>}
